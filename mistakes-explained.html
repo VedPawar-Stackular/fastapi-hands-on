@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>app.py — Mistakes & How to Think About Them</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --panel: #171a23;
+    --text: #d8dee9;
+    --muted: #8b94a8;
+    --accent: #5fb3ff;
+    --bad: #ff6b6b;
+    --good: #6bcf8f;
+    --warn: #ffb454;
+    --code-bg: #0c0e14;
+    --border: #262a37;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.6;
+    margin: 0;
+    padding: 0 0 80px;
+  }
+  header {
+    padding: 48px 24px 32px;
+    text-align: center;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, #1a1e2a 0%, var(--bg) 100%);
+  }
+  header h1 { margin: 0 0 8px; font-size: 1.9rem; color: #fff; }
+  header p { margin: 0; color: var(--muted); }
+  main {
+    max-width: 900px;
+    margin: 40px auto;
+    padding: 0 24px;
+  }
+  .mistake {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 32px;
+    overflow: hidden;
+  }
+  .mistake-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    background: #1c2030;
+  }
+  .badge {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    padding: 3px 10px;
+    border-radius: 20px;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .badge.critical { background: rgba(255,107,107,0.15); color: var(--bad); border: 1px solid var(--bad); }
+  .badge.medium { background: rgba(255,180,84,0.15); color: var(--warn); border: 1px solid var(--warn); }
+  .mistake-header h2 { margin: 0; font-size: 1.15rem; color: #fff; }
+  .mistake-body { padding: 20px; }
+  .mistake-body h3 {
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--accent);
+    margin: 22px 0 8px;
+  }
+  .mistake-body h3:first-child { margin-top: 0; }
+  p { margin: 6px 0 12px; }
+  code {
+    background: var(--code-bg);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: "Cascadia Code", "Fira Code", Consolas, monospace;
+    font-size: 0.9em;
+    color: #f2c078;
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    font-family: "Cascadia Code", "Fira Code", Consolas, monospace;
+    font-size: 0.85rem;
+    margin: 8px 0 16px;
+  }
+  pre.bad { border-left: 3px solid var(--bad); }
+  pre.good { border-left: 3px solid var(--good); }
+  .tag {
+    display: inline-block;
+    font-size: 0.75rem;
+    font-weight: 700;
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .tag.bad { color: var(--bad); }
+  .tag.good { color: var(--good); }
+  ul { padding-left: 22px; }
+  li { margin-bottom: 6px; }
+  .learn {
+    background: rgba(95,179,255,0.08);
+    border: 1px solid rgba(95,179,255,0.3);
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-top: 16px;
+  }
+  .learn strong { color: var(--accent); }
+  .tldr {
+    background: rgba(107,207,143,0.08);
+    border-left: 3px solid var(--good);
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin: 0 0 18px;
+    font-size: 0.95rem;
+  }
+  .tldr strong { color: var(--good); text-transform: uppercase; font-size: 0.72rem; letter-spacing: 0.04em; display: block; margin-bottom: 4px; }
+  .breakdown {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 8px 0 18px;
+    font-size: 0.87rem;
+  }
+  .breakdown th, .breakdown td {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+    vertical-align: top;
+  }
+  .breakdown th {
+    color: var(--accent);
+    text-transform: uppercase;
+    font-size: 0.7rem;
+    letter-spacing: 0.04em;
+    font-weight: 700;
+  }
+  .breakdown td:first-child { white-space: nowrap; }
+  .example {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin: 8px 0 18px;
+    font-family: "Cascadia Code", "Fira Code", Consolas, monospace;
+    font-size: 0.83rem;
+  }
+  .example .line { padding: 2px 0; }
+  .example .arrow { color: var(--accent); }
+  .example .err { color: var(--bad); }
+  .example .ok { color: var(--good); }
+  .framework {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px;
+    margin-top: 40px;
+  }
+  .framework h2 { color: #fff; margin-top: 0; }
+  .step {
+    display: flex;
+    gap: 14px;
+    margin-bottom: 18px;
+    align-items: flex-start;
+  }
+  .step-num {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #0f1117;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.85rem;
+  }
+  .step-content strong { color: #fff; display: block; margin-bottom: 2px; }
+  .step-content span { color: var(--muted); font-size: 0.92rem; }
+  footer {
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.85rem;
+    margin-top: 50px;
+  }
+  .toc {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin-bottom: 32px;
+  }
+  .toc h2 { font-size: 1rem; margin: 0 0 10px; color: #fff; }
+  .toc ol { margin: 0; padding-left: 20px; }
+  .toc a { color: var(--accent); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  .toc li span.sev { font-size: 0.72rem; color: var(--muted); margin-left: 6px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>app.py — Mistakes Explained</h1>
+  <p>What went wrong, why it went wrong, and how to think about it next time</p>
+</header>
+
+<main>
+
+  <div class="toc">
+    <h2>Contents</h2>
+    <ol>
+      <li><a href="#m1">Declared a dict, used it like a list</a><span class="sev">(critical)</span></li>
+      <li><a href="#m2">Subscript access on a Pydantic model (<code>ticket[priority]</code>)</a><span class="sev">(critical)</span></li>
+      <li><a href="#m3">Comparing to the wrong variable</a><span class="sev">(critical)</span></li>
+      <li><a href="#m4">response_model shape didn't match what was returned</a><span class="sev">(critical)</span></li>
+      <li><a href="#m5">Two <code>FastAPI()</code> instances — one silently orphaned</a><span class="sev">(critical)</span></li>
+      <li><a href="#m6">Using <code>http.client.HTTPResponse</code> instead of FastAPI's error handling</a><span class="sev">(medium)</span></li>
+      <li><a href="#m7">Fragile ID generation with <code>len(tickets_db) + 1</code></a><span class="sev">(medium)</span></li>
+      <li><a href="#m8">Duplicate keyword argument via <code>**</code> unpack</a><span class="sev">(critical)</span></li>
+      <li><a href="#framework">How to think before each decision</a></li>
+    </ol>
+  </div>
+
+  <!-- MISTAKE 1 -->
+  <section class="mistake" id="m1">
+    <div class="mistake-header">
+      <span class="badge critical">Critical</span>
+      <h2>1. Declared a dict, used it like a list</h2>
+    </div>
+    <div class="mistake-body">
+      <div class="tldr"><strong>TL;DR</strong><code>filtered_ticket = {}</code> then <code>filtered_ticket.append(...)</code> — dicts have no <code>.append()</code>. Crashes with <code>AttributeError</code>.</div>
+
+      <h3>What happened</h3>
+      <p>
+        <code>filtered_ticket</code> was created as an empty dict (<code>{}</code>). Later code called
+        <code>filtered_ticket.append(...)</code> on it. Dicts don't have <code>.append()</code> —
+        only lists do.
+      </p>
+
+      <h3>Piece by piece</h3>
+      <table class="breakdown">
+        <tr><th>Piece</th><th>Meaning</th></tr>
+        <tr><td><code>{}</code></td><td>empty <strong>dict</strong> literal — key → value storage</td></tr>
+        <tr><td><code>[]</code></td><td>empty <strong>list</strong> literal — ordered sequence storage</td></tr>
+        <tr><td><code>d.append(x)</code></td><td>invalid — dicts don't support this method at all</td></tr>
+        <tr><td><code>l.append(x)</code></td><td>valid — adds <code>x</code> to end of list <code>l</code></td></tr>
+        <tr><td><code>d[key] = x</code></td><td>valid — sets/overwrites value at <code>key</code> in dict <code>d</code></td></tr>
+      </table>
+
+      <span class="tag bad">Before (broken)</span>
+      <pre class="bad">filtered_ticket = {}   # dict
+...
+filtered_ticket.append(Ticket(id=ticket_id, **ticket.model_dump()))  # dict has no .append</pre>
+
+      <span class="tag good">After (fixed)</span>
+      <pre class="good">filtered_ticket = []   # list, matches what you're actually building
+...
+filtered_ticket.append(Ticket(id=ticket_id, **ticket.model_dump()))</pre>
+
+      <h3>Why it happened</h3>
+      <p>
+        Own comment said <em>"my thought process is to make a dict to store all the filtered
+        tickets, but I am not sure if this is the best approach."</em> That uncertainty was the
+        signal to stop and ask: insert-by-key, or grow-a-sequence? Container was picked before the
+        usage pattern was decided.
+      </p>
+
+      <h3>How to avoid it next time</h3>
+      <ul>
+        <li>Pick container by how you'll <strong>use</strong> it. Need lookup by key later → dict. Just collecting matches in order → list.</li>
+        <li>Not sure? Write the loop body first (<code>.append(...)</code> vs. <code>[key] = ...</code>) — that reveals the container it needs.</li>
+        <li>Run the endpoint once. This error shows up on the very first real request.</li>
+      </ul>
+
+      <div class="learn">
+        <strong>💡 Learn this:</strong> Python containers aren't interchangeable — <code>dict</code>,
+        <code>list</code>, <code>set</code>, <code>tuple</code> each support different operations.
+        Mixing the mental model of one with the syntax of another is one of the most common beginner
+        bugs. Ask "what am I storing this for?" before typing the declaration.
+      </div>
+    </div>
+  </section>
+
+  <!-- MISTAKE 2 -->
+  <section class="mistake" id="m2">
+    <div class="mistake-header">
+      <span class="badge critical">Critical</span>
+      <h2>2. Subscript access on a Pydantic model (<code>ticket[priority]</code>)</h2>
+    </div>
+    <div class="mistake-body">
+      <div class="tldr"><strong>TL;DR</strong><code>ticket</code> is an object, not a dict. Use <code>ticket.priority</code>, not <code>ticket[priority]</code>. The latter raises <code>TypeError</code>.</div>
+
+      <h3>What happened</h3>
+      <p>
+        <code>ticket</code> is a <code>Ticket</code> instance (a Pydantic <code>BaseModel</code>), not
+        a dict. Pydantic models expose fields as <strong>attributes</strong>, not subscriptable keys.
+        <code>ticket[priority]</code> tries to index the object using the <em>value</em> of variable
+        <code>priority</code> (e.g. the string <code>"HIGH"</code>) — something <code>Ticket</code>
+        has zero support for.
+      </p>
+
+      <h3>Piece by piece</h3>
+      <table class="breakdown">
+        <tr><th>Piece</th><th>Meaning</th></tr>
+        <tr><td><code>ticket</code></td><td>a <code>Ticket</code> object (Pydantic model instance)</td></tr>
+        <tr><td><code>priority</code></td><td>a plain string variable, e.g. holds <code>"HIGH"</code></td></tr>
+        <tr><td><code>ticket[priority]</code></td><td>tries <code>ticket["HIGH"]</code> — indexing not supported on <code>Ticket</code> → <code>TypeError</code></td></tr>
+        <tr><td><code>ticket.priority</code></td><td>reads the actual <code>priority</code> field off the object → correct</td></tr>
+      </table>
+
+      <span class="tag bad">Before (broken)</span>
+      <pre class="bad">if ticket[priority] == priority:      # TypeError — Ticket isn't subscriptable</pre>
+
+      <span class="tag good">After (fixed)</span>
+      <pre class="good">if ticket.priority == priority:       # dot access reads the field</pre>
+
+      <h3>Why it happened</h3>
+      <p>
+        Likely muscle memory from dicts — <code>tickets_db[ticket_id]</code> is used correctly
+        elsewhere, since <code>tickets_db</code> genuinely <em>is</em> a dict. File mixes a raw dict
+        (<code>tickets_db</code>) with Pydantic objects (<code>Ticket</code>), easy to apply dict
+        syntax everywhere.
+      </p>
+
+      <h3>How to avoid it next time</h3>
+      <ul>
+        <li>Before <code>x[y]</code> or <code>x.y</code>, ask: "what type is <code>x</code> right now?" From <code>tickets_db.items()</code>, the second tuple element is a <code>Ticket</code> → dot access.</li>
+        <li>Editor autocomplete confirms it — type <code>ticket.</code> and see field suggestions.</li>
+        <li>A type checker (mypy/pyright) flags <code>ticket[priority]</code> before you ever run it.</li>
+      </ul>
+
+      <div class="learn">
+        <strong>💡 Learn this:</strong> <code>obj[key]</code> requires the class to implement
+        <code>__getitem__</code> (dicts, lists, opt-in custom classes). Pydantic models don't — each
+        field is a real attribute with a defined type. Dicts are for dynamic/arbitrary keys; model
+        attributes are for a fixed, known schema.
+      </div>
+    </div>
+  </section>
+
+  <!-- MISTAKE 3 -->
+  <section class="mistake" id="m3">
+    <div class="mistake-header">
+      <span class="badge critical">Critical</span>
+      <h2>3. Comparing to the wrong variable</h2>
+    </div>
+    <div class="mistake-body">
+      <div class="tldr"><strong>TL;DR</strong><code>ticket[priority] == priority</code> compares a value to itself, conceptually. Needed <code>ticket.priority == priority</code> — ticket's own field vs. the filter.</div>
+
+      <h3>What happened</h3>
+      <p>
+        Even fixing the subscript issue alone isn't enough — the intent was "does this ticket's
+        priority field equal the priority the caller asked to filter by." That needs the ticket's
+        own <code>.priority</code> field compared against the function parameter <code>priority</code>
+        — two different things sharing one name.
+      </p>
+
+      <h3>Traced with real values</h3>
+      <div class="example">
+<span class="line">priority = "HIGH"            <span class="arrow">← query param passed by caller</span></span>
+<span class="line">ticket.priority = "MEDIUM"   <span class="arrow">← this particular ticket's actual field</span></span>
+<span class="line"></span>
+<span class="line err">ticket[priority] == priority   →  TypeError (mistake #2, crashes before comparing)</span>
+<span class="line ok">ticket.priority == priority    →  "MEDIUM" == "HIGH"  →  False  (correct — ticket filtered out)</span>
+      </div>
+
+      <span class="tag bad">Before (broken logic)</span>
+      <pre class="bad">if ticket[priority] == priority:   # comparing "ticket's field at key=priority" to "priority" itself</pre>
+
+      <span class="tag good">After (correct logic)</span>
+      <pre class="good">if ticket.priority == priority:    # ticket's own priority field vs. the filter the caller passed in</pre>
+
+      <h3>Why it happened</h3>
+      <p>
+        Reusing the name <code>priority</code> for both the query parameter and the field being
+        compared makes it easy to lose track of which is which mid-expression. Not really a syntax
+        bug — a "didn't read the condition out loud" bug.
+      </p>
+
+      <h3>How to avoid it next time</h3>
+      <ul>
+        <li>Say the conditional in plain English first: "keep this ticket if its priority field matches the priority the user asked for." Translate that sentence field by field.</li>
+        <li>Watch for name collisions between function parameters and object fields — easy to accidentally write <code>x == x</code>-shaped code when they share a name.</li>
+        <li>Trace with a concrete example (see table above) before trusting the logic.</li>
+      </ul>
+
+      <div class="learn">
+        <strong>💡 Learn this:</strong> Logic bugs like this survive type checkers and linters — code
+        runs fine, just returns wrong tickets. "Does it run" is a lower bar than "does it do what I
+        meant." Always mentally run the condition with a real example before trusting it.
+      </div>
+    </div>
+  </section>
+
+  <!-- MISTAKE 4 -->
+  <section class="mistake" id="m4">
+    <div class="mistake-header">
+      <span class="badge critical">Critical</span>
+      <h2>4. <code>response_model</code> shape didn't match what was returned</h2>
+    </div>
+    <div class="mistake-body">
+      <div class="tldr"><strong>TL;DR</strong><code>response_model=Ticket</code> promises one ticket. Function returns many. Use <code>response_model=List[Ticket]</code> for collection endpoints.</div>
+
+      <h3>What happened</h3>
+      <p>
+        <code>@app.get("/tickets/", response_model=Ticket, ...)</code> declared the response as a
+        <strong>single</strong> <code>Ticket</code>. The function actually returns
+        <code>tickets_db.values()</code> or <code>filtered_ticket</code> — plural, not singular.
+        FastAPI treats <code>response_model</code> as a strict contract for validating/serializing
+        the return value; forcing a list into a single-object schema fails or mis-serializes.
+      </p>
+
+      <h3>Piece by piece</h3>
+      <table class="breakdown">
+        <tr><th>Piece</th><th>Meaning</th></tr>
+        <tr><td><code>response_model=Ticket</code></td><td>"this endpoint returns exactly one Ticket-shaped object"</td></tr>
+        <tr><td><code>response_model=List[Ticket]</code></td><td>"this endpoint returns a list of Ticket-shaped objects"</td></tr>
+        <tr><td><code>tickets_db.values()</code></td><td>dict view of all <code>Ticket</code> objects — many, not one</td></tr>
+        <tr><td><code>List[Ticket]</code></td><td>typing generic — <code>List</code> from <code>typing</code>, parameterized with element type <code>Ticket</code></td></tr>
+      </table>
+
+      <span class="tag bad">Before (broken)</span>
+      <pre class="bad">@app.get("/tickets/", response_model=Ticket, status_code=200)
+async def read_tickets(...):
+    ...
+    return tickets_db.values()   # many tickets, but response_model says "one Ticket"</pre>
+
+      <span class="tag good">After (fixed)</span>
+      <pre class="good">from typing import List
+
+@app.get("/tickets/", response_model=List[Ticket], status_code=200)
+async def read_tickets(...):
+    ...
+    return list(tickets_db.values())</pre>
+
+      <h3>Why it happened</h3>
+      <p>
+        <code>response_model=Ticket</code> likely copy-pasted from the single-ticket endpoints
+        (<code>create_ticket</code>, <code>read_all_tickets</code>) without reconsidering that
+        <em>this</em> endpoint returns a collection.
+      </p>
+
+      <h3>How to avoid it next time</h3>
+      <ul>
+        <li>For every endpoint ask: "what does this function actually <code>return</code>?" and "one item, or many?" Model describes the real return shape, not a copied neighbor's.</li>
+        <li>Singular endpoint (<code>/tickets/{id}</code>) → <code>Ticket</code>. Collection endpoint (<code>/tickets/</code>, no ID) → <code>List[Ticket]</code>.</li>
+        <li>Test via <code>/docs</code> Swagger UI — shape mismatch shows immediately as validation error or wrong response.</li>
+      </ul>
+
+      <div class="learn">
+        <strong>💡 Learn this:</strong> <code>response_model</code> isn't documentation only — FastAPI
+        actively validates/filters outgoing data against it. Wrong shape can raise
+        <code>ResponseValidationError</code> at runtime or silently strip data a client expected.
+        Treat it as a promise to every consumer of the API.
+      </div>
+    </div>
+  </section>
+
+  <!-- MISTAKE 5 -->
+  <section class="mistake" id="m5">
+    <div class="mistake-header">
+      <span class="badge critical">Critical</span>
+      <h2>5. Two <code>FastAPI()</code> instances — one silently orphaned</h2>
+    </div>
+    <div class="mistake-body">
+      <div class="tldr"><strong>TL;DR</strong><code>app = FastAPI()</code> ran twice. Second call replaces the name's target; first app (with <code>/health</code> attached) is discarded.</div>
+
+      <h3>What happened</h3>
+      <p>
+        <code>app = FastAPI()</code> at line 8 — <code>/health</code> route registered on that
+        instance. Then <code>app = FastAPI(lifespan=lifespan)</code> at line 55 creates a
+        <strong>brand-new, separate</strong> app object and rebinds the name <code>app</code> to it.
+        The original instance (with <code>/health</code> attached) is unreferenced and
+        garbage-collected — <code>/health</code> disappears from the running server even though the
+        decorator looks correct in source.
+      </p>
+
+      <h3>Traced step by step</h3>
+      <div class="example">
+<span class="line">1. app = FastAPI()              <span class="arrow">← name "app" → Object A</span></span>
+<span class="line">2. @app.get("/health")          <span class="arrow">← /health registered on Object A</span></span>
+<span class="line">3. app = FastAPI(lifespan=...)  <span class="arrow">← name "app" → Object B (new, empty)</span></span>
+<span class="line err">   Object A still exists in memory, but nothing points to it → garbage collected → /health gone</span>
+<span class="line">4. @app.post("/tickets/")       <span class="arrow">← registered on Object B (the only one left)</span></span>
+      </div>
+
+      <span class="tag bad">Before (broken)</span>
+      <pre class="bad">app = FastAPI()
+
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    ...
+
+app = FastAPI(lifespan=lifespan)   # NEW app — /health route is gone</pre>
+
+      <span class="tag good">After (fixed — create app once, with lifespan from the start)</span>
+      <pre class="good">@asynccontextmanager
+async def lifespan(app: FastAPI):
+    ...
+
+app = FastAPI(lifespan=lifespan)   # single instance, created after lifespan is defined
+
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}</pre>
+
+      <h3>Why it happened</h3>
+      <p>
+        Own comment flags it: <em>"i dont know again what this does, but this is what the format is,
+        so i added this."</em> Copying a pattern (<code>FastAPI(lifespan=lifespan)</code>) without
+        checking whether <code>app</code> already existed led to a silent duplicate.
+      </p>
+
+      <h3>How to avoid it next time</h3>
+      <ul>
+        <li>Before reassigning a name already used (<code>app = ...</code> again), ask: "did I already create this, and am I about to throw away work attached to it?"</li>
+        <li><code>lifespan</code> must exist <em>before</em> <code>FastAPI(lifespan=lifespan)</code> — so move the single <code>FastAPI()</code> call to <em>after</em> the <code>lifespan</code> function definition, don't create a second app.</li>
+        <li>When copy-pasting a pattern from docs, read every line for what it assumes about existing code.</li>
+      </ul>
+
+      <div class="learn">
+        <strong>💡 Learn this:</strong> Reassigning a variable doesn't merge/update the old object —
+        it just points the name somewhere new. The old object survives only if something else still
+        references it; here nothing did, so garbage collection reclaims it along with every route
+        registered on it. Common trap with singletons: <code>FastAPI()</code>, DB connections,
+        loggers.
+      </div>
+    </div>
+  </section>
+
+  <!-- MISTAKE 6 -->
+  <section class="mistake" id="m6">
+    <div class="mistake-header">
+      <span class="badge medium">Medium</span>
+      <h2>6. Using <code>http.client.HTTPResponse</code> instead of FastAPI's error handling</h2>
+    </div>
+    <div class="mistake-body">
+      <div class="tldr"><strong>TL;DR</strong>Imported the wrong <code>HTTPResponse</code> — a low-level client-side class, not a FastAPI response. Use <code>raise HTTPException(...)</code> instead.</div>
+
+      <h3>What happened</h3>
+      <p>
+        File imports <code>from http.client import HTTPResponse</code>, uses
+        <code>HTTPResponse(status_code=404, content={...})</code> to signal errors.
+        <code>http.client.HTTPResponse</code> is a low-level class for reading raw HTTP responses
+        from sockets (used when your code acts as an HTTP <em>client</em>) — not part of
+        Starlette/FastAPI's response system, won't produce a proper 404 to the caller.
+      </p>
+
+      <h3>Two different classes, same-sounding name</h3>
+      <table class="breakdown">
+        <tr><th>Class</th><th>Where from</th><th>Actual purpose</th></tr>
+        <tr><td><code>http.client.HTTPResponse</code></td><td>Python standard library</td><td>reads a response <em>after making</em> an outgoing HTTP request (client role)</td></tr>
+        <tr><td><code>fastapi.HTTPException</code></td><td>FastAPI</td><td>raise inside an endpoint to short-circuit with a proper error status + body (server role)</td></tr>
+        <tr><td><code>fastapi.responses.JSONResponse</code></td><td>FastAPI (Starlette)</td><td><code>return</code> a fully custom response with headers/status/body (server role)</td></tr>
+      </table>
+
+      <span class="tag bad">Before (wrong tool)</span>
+      <pre class="bad">from http.client import HTTPResponse
+...
+return HTTPResponse(status_code=404, content={"detail": "Ticket not found"})</pre>
+
+      <span class="tag good">After (FastAPI's actual error mechanism)</span>
+      <pre class="good">from fastapi import HTTPException
+...
+raise HTTPException(status_code=404, detail="Ticket not found")</pre>
+
+      <h3>Why it happened</h3>
+      <p>
+        Name <code>HTTPResponse</code> "sounds right" for returning an HTTP response, but the
+        standard library and FastAPI have separate, non-interchangeable classes with similar names
+        for very different jobs.
+      </p>
+
+      <h3>How to avoid it next time</h3>
+      <ul>
+        <li>For errors in FastAPI: <code>raise HTTPException(status_code=..., detail=...)</code> — FastAPI catches it, converts to correct HTTP response.</li>
+        <li><code>fastapi.responses.JSONResponse</code> only when you need to <code>return</code> (not raise) a custom response with full header/body control.</li>
+        <li>When importing something because "the name sounds right," check where it actually comes from.</li>
+      </ul>
+
+      <div class="learn">
+        <strong>💡 Learn this:</strong> <code>raise HTTPException(...)</code> vs. <code>return</code>
+        matters — raising stops execution immediately and hands off to FastAPI's exception handling,
+        exactly right for "this request is invalid, stop here." Returning a malformed object hands
+        back garbage with a 200 status, because FastAPI has no idea it was meant as an error.
+      </div>
+    </div>
+  </section>
+
+  <!-- MISTAKE 7 -->
+  <section class="mistake" id="m7">
+    <div class="mistake-header">
+      <span class="badge medium">Medium</span>
+      <h2>7. Fragile ID generation with <code>len(tickets_db) + 1</code></h2>
+    </div>
+    <div class="mistake-body">
+      <div class="tldr"><strong>TL;DR</strong>ID from <code>len()</code> breaks after any delete — collection shrinks, next "new" ID collides with an existing ticket and overwrites it.</div>
+
+      <h3>What happened</h3>
+      <p>
+        <code>create_ticket</code> generates new IDs as <code>len(tickets_db) + 1</code>. Works only
+        while nothing is ever deleted. Once <code>delete_ticket</code> removes an entry,
+        <code>len(tickets_db)</code> shrinks, and the next created ticket can be assigned an ID that
+        already belongs to an existing ticket — silently overwriting it via
+        <code>tickets_db[ticket_id] = full_ticket</code>.
+      </p>
+
+      <h3>Traced sequence</h3>
+      <div class="example">
+<span class="line">create ticket → len=0 → id=1   tickets_db = {1: A}</span>
+<span class="line">create ticket → len=1 → id=2   tickets_db = {1: A, 2: B}</span>
+<span class="line">delete id=1              →   tickets_db = {2: B}</span>
+<span class="line err">create ticket → len=1 → id=2 (COLLISION)   tickets_db = {2: C}  ← B silently overwritten by C</span>
+      </div>
+
+      <span class="tag bad">Before (breaks after any delete)</span>
+      <pre class="bad">ticket_id = len(tickets_db) + 1</pre>
+
+      <span class="tag good">After (monotonically increasing, delete-safe)</span>
+      <pre class="good">_next_id = 1  # module-level counter, separate from dict size
+
+def get_next_id():
+    global _next_id
+    new_id = _next_id
+    _next_id += 1
+    return new_id</pre>
+
+      <h3>Why it happened</h3>
+      <p>
+        <code>len(tickets_db) + 1</code> is a natural first guess for "next ID" — works for the happy
+        path (only ever adding). Failure only appears once deletion enters the picture, easy to miss
+        while writing the create endpoint in isolation.
+      </p>
+
+      <h3>How to avoid it next time</h3>
+      <ul>
+        <li>When deriving an ID from a collection's current size, ask: "does anything ever shrink this collection?" If yes, size-based IDs aren't safe.</li>
+        <li>Real database → auto-increment primary key or UUID. This in-memory dict → separate ever-incrementing counter (never decremented).</li>
+        <li>Manual test: create 2 tickets, delete ticket 1, create a new ticket — check whether the new ID collides with ticket 2's ID.</li>
+      </ul>
+
+      <div class="learn">
+        <strong>💡 Learn this:</strong> Deriving an ID from <code>len()</code> conflates "how many
+        items exist right now" with "what's the next unique identifier to hand out." Only the same
+        number if items are never removed. Separate counter decouples identity assignment from
+        current collection size.
+      </div>
+    </div>
+  </section>
+
+  <!-- MISTAKE 8 -->
+  <section class="mistake" id="m8">
+    <div class="mistake-header">
+      <span class="badge critical">Critical</span>
+      <h2>8. Duplicate keyword argument via <code>**</code> unpack</h2>
+    </div>
+    <div class="mistake-body">
+      <div class="tldr"><strong>TL;DR</strong><code>Ticket(id=ticket_id, **ticket.model_dump())</code> passes <code>id</code> twice — once explicitly, once inside the unpacked dict (which already has an <code>id</code> key). Python raises <code>TypeError: got multiple values for keyword argument 'id'</code>.</div>
+
+      <h3>What happened</h3>
+      <p>
+        The line tries to build a new <code>Ticket</code> by combining an explicit <code>id=ticket_id</code>
+        with all fields spread out of <code>ticket.model_dump()</code>. Problem: <code>ticket.model_dump()</code>
+        already includes an <code>id</code> key (every <code>Ticket</code> has an <code>id</code> field), so the
+        same keyword argument gets supplied twice in one call — which Python forbids outright.
+      </p>
+
+      <h3>Piece by piece</h3>
+      <table class="breakdown">
+        <tr><th>Piece</th><th>What it is</th><th>What it does here</th></tr>
+        <tr><td><code>ticket</code></td><td>existing <code>Ticket</code> object from the loop</td><td>the source record being copied</td></tr>
+        <tr><td><code>.model_dump()</code></td><td>Pydantic <code>BaseModel</code> method</td><td>converts the object → a plain <code>dict</code> of all its fields, including <code>id</code></td></tr>
+        <tr><td><code>**</code></td><td>dict-unpacking operator</td><td>spreads a dict's key/value pairs as individual <code>keyword=value</code> arguments into a function call</td></tr>
+        <tr><td><code>id=ticket_id</code></td><td>explicit keyword argument</td><td>manually sets <code>id</code> — but this key <em>also</em> exists in the unpacked dict → collision</td></tr>
+        <tr><td><code>Ticket(...)</code></td><td>constructor call</td><td>builds a new <code>Ticket</code> instance from whatever keyword arguments end up assembled</td></tr>
+      </table>
+
+      <h3>Traced with real values</h3>
+      <div class="example">
+<span class="line">ticket_id = 1</span>
+<span class="line">ticket = Ticket(id=1, title="Sample Ticket 1", priority="HIGH", reported_by="User A", is_resolved=False)</span>
+<span class="line"></span>
+<span class="line">ticket.model_dump()</span>
+<span class="line arrow">→ {"id": 1, "title": "Sample Ticket 1", "priority": "HIGH", "reported_by": "User A", "is_resolved": False}</span>
+<span class="line"></span>
+<span class="line">Ticket(id=ticket_id, **ticket.model_dump())</span>
+<span class="line arrow">expands to:</span>
+<span class="line err">Ticket(id=1, id=1, title="Sample Ticket 1", priority="HIGH", reported_by="User A", is_resolved=False)</span>
+<span class="line err">                ↑ same keyword "id" supplied twice → TypeError: got multiple values for keyword argument 'id'</span>
+      </div>
+
+      <span class="tag bad">Before (broken)</span>
+      <pre class="bad">filtered_ticket[ticket_id] = Ticket(id=ticket_id, **ticket.model_dump())
+# TypeError: __init__() got multiple values for keyword argument 'id'</pre>
+
+      <span class="tag good">After — Option A: id is already correct, skip rebuilding entirely</span>
+      <pre class="good">filtered_ticket[ticket_id] = ticket   # ticket already IS the Ticket with the right id</pre>
+
+      <span class="tag good">After — Option B: need to override id, exclude it from the dump first</span>
+      <pre class="good">filtered_ticket[ticket_id] = Ticket(id=ticket_id, **ticket.model_dump(exclude={"id"}))</pre>
+
+      <span class="tag good">After — Option C: idiomatic Pydantic way to clone-with-override</span>
+      <pre class="good">filtered_ticket[ticket_id] = ticket.model_copy(update={"id": ticket_id})</pre>
+
+      <h3>Why it happened</h3>
+      <p>
+        <code>.model_dump()</code> dumps <strong>every</strong> field on the model — there's no
+        implicit assumption that it excludes fields you're about to set manually. Manually setting
+        <code>id=</code> on top, without first checking whether <code>id</code> is already in the
+        dump, is what creates the collision. The intent ("make sure this new object has the correct
+        id") was reasonable — the mechanism used to express it wasn't.
+      </p>
+
+      <h3>How to avoid it next time</h3>
+      <ul>
+        <li>Before writing <code>func(explicit_kw=x, **some_dict)</code>, ask: "does <code>some_dict</code> already contain the key <code>explicit_kw</code>?" If yes, you must either drop the explicit kwarg, or exclude that key from the dict first.</li>
+        <li>Same rule as writing <code>func(x=1, x=2)</code> by hand — not allowed, just less obvious when one of the <code>x=</code> is hidden inside a <code>**dict</code>.</li>
+        <li>For Pydantic specifically, reach for <code>model_dump(exclude={...})</code> or, better, <code>model_copy(update={...})</code> when the actual goal is "same object, but override one or two fields." <code>model_copy</code> exists exactly for this and avoids the whole dump/unpack dance.</li>
+        <li>If the object is already fully correct as-is (no fields need overriding), don't rebuild it at all — just reference it directly.</li>
+      </ul>
+
+      <div class="learn">
+        <strong>💡 Learn this:</strong> <code>**dict</code> unpacking is great for "take this dict,
+        spread it as keyword arguments" — but Python still enforces that each keyword argument name
+        appears at most once in a call, regardless of whether it came from an explicit
+        <code>key=value</code> or from inside an unpacked dict. Always check whether your unpacked
+        dict already contains a key you're also setting manually. Pydantic's <code>model_copy(update={...})</code>
+        is the cleaner, purpose-built tool for "clone this object but change a couple of fields" — it
+        sidesteps this whole class of bug.
+      </div>
+    </div>
+  </section>
+
+  <!-- FRAMEWORK -->
+  <div class="framework" id="framework">
+    <h2>How to think before each decision (general framework)</h2>
+    <p style="color: var(--muted);">
+      Every mistake above traces back to skipping one of these questions. Run through them before
+      writing the line, not after debugging it.
+    </p>
+
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <strong>What type is this value, right now?</strong>
+        <span>Before calling a method or using <code>[]</code>/<code>.</code> access, know whether you're holding a dict, a list, or a model instance. If unsure, check your editor's inferred type.</span>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        <strong>What will I do with this container later?</strong>
+        <span>Choose dict vs. list vs. set based on the operations you'll perform (lookup by key vs. iterate in order vs. build up a sequence) — not by habit.</span>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <strong>Say the condition in plain English first.</strong>
+        <span>Translate "keep this ticket if X" into code field-by-field, rather than pattern-matching on how a similar line looked elsewhere.</span>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-content">
+        <strong>Does my declared contract match what I actually return?</strong>
+        <span>For FastAPI, <code>response_model</code> shape (single vs. list) must match the real return value — check both ends, not just one.</span>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">5</div>
+      <div class="step-content">
+        <strong>Am I creating something new, or reusing something that already exists?</strong>
+        <span>Reassigning a name like <code>app = ...</code> a second time silently drops whatever was attached to the first one. Check if the name is already bound before rebinding it.</span>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">6</div>
+      <div class="step-content">
+        <strong>Am I using the tool built for this framework, or one that sounds similar?</strong>
+        <span>Double-check imports — a same-sounding class from a different part of the standard library (<code>http.client.HTTPResponse</code> vs. FastAPI's <code>HTTPException</code>) is not interchangeable.</span>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">7</div>
+      <div class="step-content">
+        <strong>What happens under deletion / edge cases, not just the happy path?</strong>
+        <span>ID generation from <code>len()</code> is the clearest example — trace what happens after a delete, an empty collection, or a repeated operation before trusting the logic.</span>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">8</div>
+      <div class="step-content">
+        <strong>If I'm combining explicit kwargs with <code>**dict</code>, do the keys overlap?</strong>
+        <span>Check whether the dict you're unpacking already contains a key you're also setting manually. If it might, exclude that key from the dict or drop the explicit kwarg.</span>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">9</div>
+      <div class="step-content">
+        <strong>Did I actually run it?</strong>
+        <span>Every bug above surfaces immediately by hitting the endpoint once (via <code>/docs</code> or curl). Code that "looks right" is not the same as code that runs correctly.</span>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<footer>
+  Generated from a review of <code>app.py</code> — keep this as a reference while you continue building.
+</footer>
+
+</body>
+</html>
