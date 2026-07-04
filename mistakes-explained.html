@@ -230,6 +230,7 @@
       <li><a href="#m10">Redundant <code>Depends()</code> — once inside <code>Annotated</code>, once as the default</a><span class="sev">(critical)</span></li>
       <li><a href="#m11"><code>HTTPException(content=...)</code> — wrong keyword argument</a><span class="sev">(critical)</span></li>
       <li><a href="#m12">Docker DB container not running — <code>ConnectionRefusedError</code></a><span class="sev">(medium)</span></li>
+      <li><a href="#m13">Tz-aware Python datetime vs. tz-naive Postgres column</a><span class="sev">(critical)</span></li>
       <li><a href="#framework">How to think before each decision</a></li>
     </ol>
   </div>
@@ -1007,6 +1008,88 @@ uv run .\app.py</pre>
         its database are two independent processes; starting one never starts the other. Whenever the
         app depends on an external service (DB, cache, queue), that dependency's up/down status is the
         first thing to check, before touching any application code.
+      </div>
+    </div>
+  </section>
+
+  <!-- MISTAKE 13 -->
+  <section class="mistake" id="m13">
+    <div class="mistake-header">
+      <span class="badge critical">Critical</span>
+      <h2>13. Tz-aware Python datetime vs. tz-naive Postgres column</h2>
+    </div>
+    <div class="mistake-body">
+      <div class="tldr"><strong>TL;DR</strong><code>created_at</code> field generates <code>datetime.now(timezone.utc)</code> (timezone-<strong>aware</strong>). SQLModel inferred the column as plain <code>TIMESTAMP</code> (timezone-<strong>naive</strong>) because the type annotation was just <code>datetime</code>. asyncpg refuses to insert an aware value into a naive column — every <code>POST /tools/</code> 500s.</div>
+
+      <h3>What happened</h3>
+      <p>
+        <code>Tool.created_at</code> is declared as:
+      </p>
+      <pre class="bad">created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))</pre>
+      <p>
+        Plain <code>datetime</code> annotation, nothing telling SQLModel/SQLAlchemy this column should
+        store timezone info. So when <code>SQLModel.metadata.create_all</code> ran in <code>lifespan</code>,
+        it created the column as Postgres <code>TIMESTAMP WITHOUT TIME ZONE</code>. Meanwhile the
+        <em>value</em> being inserted, <code>datetime.now(timezone.utc)</code>, carries a
+        <code>tzinfo</code> attached. asyncpg won't silently drop the tz to make it fit — it raises
+        instead: <code>can't subtract offset-naive and offset-aware datetimes</code>.
+      </p>
+
+      <h3>Piece by piece</h3>
+      <table class="breakdown">
+        <tr><th>Piece</th><th>Meaning</th></tr>
+        <tr><td><code>datetime.now(timezone.utc)</code></td><td>tz-<strong>aware</strong> — knows it's UTC</td></tr>
+        <tr><td><code>datetime.now()</code></td><td>tz-<strong>naive</strong> — just numbers, no timezone attached</td></tr>
+        <tr><td>Postgres <code>TIMESTAMP</code></td><td>naive column — stores raw numbers, no tz conversion</td></tr>
+        <tr><td>Postgres <code>TIMESTAMPTZ</code></td><td>aware column — stores UTC internally, converts on read/write</td></tr>
+        <tr><td>SQLModel <code>datetime</code> annotation alone</td><td>defaults to naive <code>TIMESTAMP</code> column — doesn't inspect the default factory to guess otherwise</td></tr>
+      </table>
+
+      <span class="tag bad">Before (broken — column and value disagree on tz-awareness)</span>
+      <pre class="bad">class Tool(ToolShared, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    is_active: bool = False
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    # column created as TIMESTAMP (naive) — value is tz-aware → asyncpg.exceptions.DataError</pre>
+
+      <span class="tag good">After (fixed — column explicitly made tz-aware, matching the value)</span>
+      <pre class="good">from sqlalchemy import Column, DateTime
+
+class Tool(ToolShared, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    is_active: bool = False
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(DateTime(timezone=True), nullable=False)
+    )</pre>
+
+      <h3>Why it happened</h3>
+      <p>
+        SQLModel infers the Postgres column type from the Python type annotation (<code>datetime</code>),
+        not from the runtime value the <code>default_factory</code> happens to produce. Writing
+        <code>datetime.now(timezone.utc)</code> looks like it's "handling timezones correctly" — and
+        the Python-side value genuinely is tz-aware — but nothing told the <em>column definition</em>
+        to also be tz-aware. Table got created once (first server start) as naive, and
+        <code>create_all</code> never alters an existing table's column types on later restarts, so
+        the mismatch stuck around silently until the first real insert.
+      </p>
+
+      <h3>How to avoid it next time</h3>
+      <ul>
+        <li>Decide up front: is this app storing UTC-aware timestamps everywhere? If yes, every <code>datetime</code> column touching "now" needs <code>sa_column=Column(DateTime(timezone=True))</code> explicitly — the bare type annotation doesn't carry that intent.</li>
+        <li>Don't fix this by stripping <code>tzinfo</code> before insert (e.g. <code>.replace(tzinfo=None)</code>) — that just throws away timezone correctness in the app to paper over a schema that's wrong. Fix the column, not the value.</li>
+        <li>Remember <code>create_all</code> only creates <em>missing</em> tables — changing a model's column type after the table already exists needs a manual <code>ALTER TABLE</code> (or a migration tool like Alembic) to actually take effect.</li>
+        <li>Test by hitting the write endpoint once, not just checking the model compiles — this only surfaces at insert time, same class of bug as mistake 12's "did I actually run it."</li>
+      </ul>
+
+      <div class="learn">
+        <strong>💡 Learn this:</strong> Postgres has two datetime column types —
+        <code>TIMESTAMP</code> (naive) and <code>TIMESTAMPTZ</code> (aware, stores UTC + converts on
+        read). An ORM's <code>datetime</code> type hint doesn't tell you which one you'll get — check
+        explicitly, especially when your app logic assumes tz-aware values everywhere (as
+        <code>timezone.utc</code> usage here does). Naive vs. aware datetimes don't silently coerce
+        into each other in Python either — comparing or subtracting them raises
+        <code>TypeError</code> for the same underlying reason asyncpg refused the insert.
       </div>
     </div>
   </section>

@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Docker + Postgres — Setup Cheatsheet</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --panel: #171a23;
+    --text: #d8dee9;
+    --muted: #8b94a8;
+    --accent: #5fb3ff;
+    --bad: #ff6b6b;
+    --good: #6bcf8f;
+    --warn: #ffb454;
+    --code-bg: #0c0e14;
+    --border: #262a37;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.6;
+    margin: 0;
+    padding: 0 0 80px;
+  }
+  header {
+    padding: 48px 24px 32px;
+    text-align: center;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, #1a1e2a 0%, var(--bg) 100%);
+  }
+  header h1 { margin: 0 0 8px; font-size: 1.9rem; color: #fff; }
+  header p { margin: 0; color: var(--muted); }
+  main {
+    max-width: 900px;
+    margin: 40px auto;
+    padding: 0 24px;
+  }
+  .case {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 32px;
+    overflow: hidden;
+  }
+  .case-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    background: #1c2030;
+  }
+  .badge {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    padding: 3px 10px;
+    border-radius: 20px;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .badge.resume { background: rgba(107,207,143,0.15); color: var(--good); border: 1px solid var(--good); }
+  .badge.new { background: rgba(95,179,255,0.15); color: var(--accent); border: 1px solid var(--accent); }
+  .case-header h2 { margin: 0; font-size: 1.15rem; color: #fff; }
+  .case-body { padding: 20px; }
+  .case-body h3 {
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--accent);
+    margin: 22px 0 8px;
+  }
+  .case-body h3:first-child { margin-top: 0; }
+  p { margin: 6px 0 12px; }
+  code {
+    background: var(--code-bg);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: "Cascadia Code", Consolas, monospace;
+    font-size: 0.9em;
+    color: #e8e8e8;
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    margin: 8px 0 16px;
+  }
+  pre code { background: none; padding: 0; }
+  ol, ul { margin: 8px 0 12px; padding-left: 24px; }
+  li { margin-bottom: 10px; }
+  .note {
+    border-left: 3px solid var(--warn);
+    background: rgba(255,180,84,0.08);
+    padding: 10px 14px;
+    border-radius: 0 6px 6px 0;
+    margin: 12px 0;
+    font-size: 0.92rem;
+  }
+  .note strong { color: var(--warn); }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0 16px;
+    font-size: 0.92rem;
+  }
+  th, td {
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  th { color: var(--muted); text-transform: uppercase; font-size: 0.72rem; letter-spacing: 0.04em; }
+  footer {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 0 24px;
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Docker + Postgres — Setup Cheatsheet</h1>
+  <p>ticket-tracker project (FastAPI + SQLModel + asyncpg) — quick reference for both flows</p>
+</header>
+
+<main>
+
+  <div class="case">
+    <div class="case-header">
+      <span class="badge resume">Case 1</span>
+      <h2>Resume work — same database, after reboot/laptop close</h2>
+    </div>
+    <div class="case-body">
+
+      <h3>1. Start Docker Desktop</h3>
+      <p>Launch it, wait for the whale icon to say "running." If daemon isn't up yet, every <code>docker</code> command fails with a pipe/socket error.</p>
+
+      <h3>2. Start the Postgres container</h3>
+      <pre><code>docker ps -a</code></pre>
+      <p>Find your container (e.g. <code>ticket-db</code> or renamed <code>local-postgres</code>). Then:</p>
+      <pre><code>docker start ticket-db</code></pre>
+
+      <h3>3. Verify it's actually listening</h3>
+      <pre><code>docker ps --filter "name=ticket-db" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"</code></pre>
+      <p>Confirm <code>PORTS</code> shows <code>0.0.0.0:5432-&gt;5432/tcp</code>.</p>
+
+      <div class="note"><strong>Watch out:</strong> if you have multiple Postgres containers mapped to the same host port <code>5432</code>, only start the one you need — two containers can't bind the same host port at once.</div>
+
+      <h3>4. Start the API</h3>
+      <pre><code>uv run uvicorn app:app --reload</code></pre>
+      <p>Swagger UI: <code>http://127.0.0.1:8000/docs</code></p>
+
+      <h3>5. DBeaver / VS Code PostgreSQL Explorer</h3>
+      <p>Just reopen — existing connection reconnects automatically once the container is up. Nothing to reconfigure.</p>
+
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="case-header">
+      <span class="badge new">Case 2</span>
+      <h2>New database connection — for a new project</h2>
+    </div>
+    <div class="case-body">
+
+      <h3>Key idea</h3>
+      <p>One Postgres <strong>container</strong> (server) can hold many <strong>databases</strong>. You don't need a new container per project — just a new database name inside the existing one, unless you want full isolation (own data volume, own lifecycle).</p>
+
+      <h3>Option A — new database inside the existing container (simplest)</h3>
+      <pre><code>docker exec -it ticket-db psql -U ticketuser -d ticketdb -c "CREATE DATABASE newprojectdb;"</code></pre>
+      <p>New project's <code>.env</code>:</p>
+      <pre><code>DATABASE_URL=postgresql+asyncpg://ticketuser:ticketpass@localhost:5432/newprojectdb</code></pre>
+
+      <h3>Option B — brand new container (full isolation, own volume)</h3>
+      <pre><code>docker run --name newproject-db `
+  -e POSTGRES_USER=newuser `
+  -e POSTGRES_PASSWORD=newpass `
+  -e POSTGRES_DB=newdb `
+  -p 5433:5432 `
+  -v newproject-db-data:/var/lib/postgresql/data `
+  -d postgres:16</code></pre>
+      <p>Note the different host port (<code>5433</code>) to avoid clashing with the existing container on <code>5432</code>. <code>.env</code>:</p>
+      <pre><code>DATABASE_URL=postgresql+asyncpg://newuser:newpass@localhost:5433/newdb</code></pre>
+      <p>The <code>-v</code> flag is a named volume — without it, deleting the container wipes all data.</p>
+
+      <h3>Connecting it in VS Code (ckolkman.vscode-postgres extension)</h3>
+      <p>"Add Connection" asks 7 questions in order:</p>
+      <table>
+        <tr><th>#</th><th>Prompt</th><th>What to enter</th></tr>
+        <tr><td>1</td><td>Hostname</td><td><code>localhost</code></td></tr>
+        <tr><td>2</td><td>User to authenticate as</td><td>e.g. <code>ticketuser</code></td></tr>
+        <tr><td>3</td><td>Password</td><td>e.g. <code>ticketpass</code></td></tr>
+        <tr><td>4</td><td>Port number</td><td><code>5432</code> (or <code>5433</code> for Option B)</td></tr>
+        <tr><td>5</td><td>Database name (blank = show all)</td><td><strong>leave blank</strong> — lists every database on that server under one tree</td></tr>
+        <tr><td>6</td><td>Connection type</td><td><code>Standard connection</code> (no SSL for local docker)</td></tr>
+        <tr><td>7</td><td>Display name</td><td>anything readable, e.g. <code>local-postgres</code></td></tr>
+      </table>
+
+      <div class="note"><strong>Before adding a new connection:</strong> expand your existing <code>localhost</code> entry first and refresh it. If step 5 was left blank when it was created, the new database will just appear there automatically — no second connection entry needed at all.</div>
+
+    </div>
+  </div>
+
+</main>
+
+<footer>
+  Generated from chat history, 2026-07-04 — ticket-tracker project (FastAPI_Hands_on).
+</footer>
+
+</body>
+</html>
