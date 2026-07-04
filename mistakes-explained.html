@@ -226,6 +226,10 @@
       <li><a href="#m6">Using <code>http.client.HTTPResponse</code> instead of FastAPI's error handling</a><span class="sev">(medium)</span></li>
       <li><a href="#m7">Fragile ID generation with <code>len(tickets_db) + 1</code></a><span class="sev">(medium)</span></li>
       <li><a href="#m8">Duplicate keyword argument via <code>**</code> unpack</a><span class="sev">(critical)</span></li>
+      <li><a href="#m9">Default-value param placed before a no-default param</a><span class="sev">(critical)</span></li>
+      <li><a href="#m10">Redundant <code>Depends()</code> — once inside <code>Annotated</code>, once as the default</a><span class="sev">(critical)</span></li>
+      <li><a href="#m11"><code>HTTPException(content=...)</code> — wrong keyword argument</a><span class="sev">(critical)</span></li>
+      <li><a href="#m12">Docker DB container not running — <code>ConnectionRefusedError</code></a><span class="sev">(medium)</span></li>
       <li><a href="#framework">How to think before each decision</a></li>
     </ol>
   </div>
@@ -740,6 +744,269 @@ def get_next_id():
         dict already contains a key you're also setting manually. Pydantic's <code>model_copy(update={...})</code>
         is the cleaner, purpose-built tool for "clone this object but change a couple of fields" — it
         sidesteps this whole class of bug.
+      </div>
+    </div>
+  </section>
+
+  <!-- MISTAKE 9 -->
+  <section class="mistake" id="m9">
+    <div class="mistake-header">
+      <span class="badge critical">Critical</span>
+      <h2>9. Default-value param placed before a no-default param</h2>
+    </div>
+    <div class="mistake-body">
+      <div class="tldr"><strong>TL;DR</strong><code>async def read_all_tickets(ticket_id: int = None, db: SessionDep):</code> — <code>ticket_id</code> has a default, <code>db</code> doesn't, and <code>db</code> comes after it. Python's function-signature rule forbids that order outright: <code>SyntaxError</code> at import time, before FastAPI even runs.</div>
+
+      <h3>What happened</h3>
+      <p>
+        Python builds a function's parameter list left to right. Once a parameter has a default
+        value (<code>= something</code>), every parameter after it must <em>also</em> have a default
+        — otherwise the interpreter can't tell which values you meant to skip when calling it
+        positionally. <code>ticket_id: int = None</code> came first (has a default), then
+        <code>db: SessionDep</code> came second with no default — order Python refuses to parse.
+      </p>
+
+      <h3>Piece by piece</h3>
+      <table class="breakdown">
+        <tr><th>Piece</th><th>Meaning</th></tr>
+        <tr><td><code>ticket_id: int = None</code></td><td>parameter with a default — becomes optional</td></tr>
+        <tr><td><code>db: SessionDep</code></td><td>parameter with no default — required, but placed <em>after</em> an optional one</td></tr>
+        <tr><td>Rule</td><td>once one parameter has a default, every parameter to its right must too</td></tr>
+      </table>
+
+      <span class="tag bad">Before (broken — SyntaxError)</span>
+      <pre class="bad">@app.get("/tickets/{ticket_id}", response_model=Ticket)
+async def read_all_tickets(ticket_id: int = None, db: SessionDep):
+    ticket = await db.get(Ticket, ticket_id)
+    ...</pre>
+
+      <span class="tag good">After (fixed — drop the default; it's a path param, always provided)</span>
+      <pre class="good">@app.get("/tickets/{ticket_id}", response_model=Ticket)
+async def read_all_tickets(ticket_id: int, db: SessionDep):
+    ticket = await db.get(Ticket, ticket_id)
+    ...</pre>
+
+      <h3>Why it happened</h3>
+      <p>
+        <code>ticket_id: int = None</code> was likely copied from a query-parameter pattern (where
+        optional filters get <code>= None</code> defaults, see mistake 7's sibling endpoint). But
+        here <code>ticket_id</code> is a <strong>path</strong> parameter — declared in the route
+        string <code>"/tickets/{ticket_id}"</code> — so FastAPI always supplies it; it can never
+        actually be missing, and giving it a default doesn't match reality.
+      </p>
+
+      <h3>How to avoid it next time</h3>
+      <ul>
+        <li>Path parameters (named inside <code>{}</code> in the route string) are never optional — never give them a <code>= default</code>.</li>
+        <li>If a parameter genuinely needs a default, everything after it in the signature needs one too, or reorder so required params come first.</li>
+        <li>This is a plain Python rule, not FastAPI-specific — the same signature would fail in any regular function.</li>
+      </ul>
+
+      <div class="learn">
+        <strong>💡 Learn this:</strong> Function signatures read left-to-right: required params first,
+        optional (defaulted) params after. Python enforces this at <em>parse</em> time — the whole
+        module fails to import, not just the one endpoint. If you see a <code>SyntaxError</code>
+        pointing at a <code>def</code> line, check every parameter's default against the ones next to it.
+      </div>
+    </div>
+  </section>
+
+  <!-- MISTAKE 10 -->
+  <section class="mistake" id="m10">
+    <div class="mistake-header">
+      <span class="badge critical">Critical</span>
+      <h2>10. Redundant <code>Depends()</code> — once inside <code>Annotated</code>, once as the default</h2>
+    </div>
+    <div class="mistake-body">
+      <div class="tldr"><strong>TL;DR</strong><code>SessionDep</code> is already <code>Annotated[AsyncSession, Depends(get_db)]</code>. Writing <code>db: SessionDep = Depends(get_db)</code> supplies <code>Depends</code> twice — FastAPI raises <code>AssertionError: Cannot specify Depends in Annotated and default value together</code>.</div>
+
+      <h3>What happened</h3>
+      <p>
+        <code>SessionDep</code> was defined once as a reusable type alias so every route wouldn't
+        need to repeat the dependency wiring: <code>SessionDep = Annotated[AsyncSession, Depends(get_db)]</code>.
+        The <code>Depends(get_db)</code> is already baked into the type — using <code>db: SessionDep</code>
+        alone is enough for FastAPI to inject the session. Adding <code>= Depends(get_db)</code> on
+        top gives FastAPI two separate places claiming to define the same dependency, and it refuses
+        to guess which one wins.
+      </p>
+
+      <h3>Piece by piece</h3>
+      <table class="breakdown">
+        <tr><th>Piece</th><th>Meaning</th></tr>
+        <tr><td><code>SessionDep = Annotated[AsyncSession, Depends(get_db)]</code></td><td>type alias — <code>Depends</code> lives <em>inside</em> the annotation itself</td></tr>
+        <tr><td><code>db: SessionDep</code></td><td>correct usage — dependency already resolved via the alias, no <code>=</code> needed</td></tr>
+        <tr><td><code>db: SessionDep = Depends(get_db)</code></td><td>wrong — a <em>second</em>, redundant <code>Depends</code> supplied as a default value on top of the one already in <code>Annotated</code></td></tr>
+      </table>
+
+      <span class="tag bad">Before (broken — AssertionError at startup)</span>
+      <pre class="bad">async def read_comments(ticket_id: int, db: SessionDep = Depends(get_db)):
+    ...</pre>
+
+      <span class="tag good">After (fixed — the alias already carries the dependency)</span>
+      <pre class="good">async def read_comments(ticket_id: int, db: SessionDep):
+    ...</pre>
+
+      <h3>Why it happened</h3>
+      <p>
+        Before <code>SessionDep</code> existed as a shared alias, every route wrote out
+        <code>db: AsyncSession = Depends(get_db)</code> in full. After introducing the alias to cut
+        the repetition, old call sites kept the leftover <code>= Depends(get_db)</code> tail out of
+        habit — same visible symptom as mistake 9 (non-default param after one with a default) when
+        other params in the same signature already had defaults, which is what made it easy to miss.
+      </p>
+
+      <h3>How to avoid it next time</h3>
+      <ul>
+        <li>Once a dependency is wrapped in an <code>Annotated[...]</code> type alias, never add <code>= Depends(...)</code> again at the call site — the alias <em>is</em> the whole dependency declaration.</li>
+        <li>If a route needs the param to have a default for signature-ordering reasons, do not reach for <code>Depends()</code> again — reorder the signature instead (see mistake 9).</li>
+        <li>When refactoring repeated <code>Depends(...)</code> boilerplate into a shared alias, grep every call site afterward — half-migrated signatures (alias <em>and</em> the old default) are the exact bug this created.</li>
+      </ul>
+
+      <div class="learn">
+        <strong>💡 Learn this:</strong> <code>Annotated[Type, Depends(...)]</code> and a plain
+        <code>= Depends(...)</code> default are two different ways of telling FastAPI the same thing
+        — use one or the other, never both on the same parameter. This is a common trap right after
+        introducing a type alias to reduce repetition: the alias absorbs the responsibility, but old
+        code at each call site doesn't know that yet.
+      </div>
+    </div>
+  </section>
+
+  <!-- MISTAKE 11 -->
+  <section class="mistake" id="m11">
+    <div class="mistake-header">
+      <span class="badge critical">Critical</span>
+      <h2>11. <code>HTTPException(content=...)</code> — wrong keyword argument</h2>
+    </div>
+    <div class="mistake-body">
+      <div class="tldr"><strong>TL;DR</strong><code>raise HTTPException(status_code=404, content={"detail": "..."})</code> — <code>HTTPException</code> has no <code>content</code> param, only <code>detail</code>. Raises <code>TypeError</code> at request time, 500s the endpoint.</div>
+
+      <h3>What happened</h3>
+      <p>
+        Right class this time (unlike mistake 6 — <code>fastapi.HTTPException</code> was imported
+        correctly), but called with the wrong keyword. <code>content</code> is a parameter of
+        <code>Response</code>/<code>JSONResponse</code> (things you <code>return</code>), not of
+        <code>HTTPException</code> (things you <code>raise</code>). <code>HTTPException.__init__</code>
+        only accepts <code>status_code</code>, <code>detail</code>, <code>headers</code> — passing
+        <code>content</code> raises <code>TypeError: HTTPException.__init__() got an unexpected
+        keyword argument 'content'</code>, which happens <em>while handling the request</em>, so the
+        client sees a 500 instead of the intended 404.
+      </p>
+
+      <h3>Piece by piece</h3>
+      <table class="breakdown">
+        <tr><th>Piece</th><th>Meaning</th></tr>
+        <tr><td><code>HTTPException(status_code=..., detail=...)</code></td><td>correct — <code>detail</code> is the payload FastAPI wraps into <code>{"detail": ...}</code> automatically</td></tr>
+        <tr><td><code>HTTPException(status_code=..., content=...)</code></td><td>wrong — no such param, <code>TypeError</code> at raise time</td></tr>
+        <tr><td><code>JSONResponse(content=...)</code></td><td>where <code>content</code> actually belongs — a different class, used with <code>return</code>, not <code>raise</code></td></tr>
+      </table>
+
+      <span class="tag bad">Before (broken)</span>
+      <pre class="bad">raise HTTPException(status_code=404, content={"detail": "Ticket not found"})
+# TypeError: HTTPException.__init__() got an unexpected keyword argument 'content'</pre>
+
+      <span class="tag good">After (fixed)</span>
+      <pre class="good">raise HTTPException(status_code=404, detail="Ticket not found")</pre>
+
+      <h3>Why it happened</h3>
+      <p>
+        Same root cause pattern as mistake 6, one level more subtle: there, the wrong <em>class</em>
+        was imported; here, the right class is used but with a kwarg borrowed from a sibling class
+        (<code>Response</code>/<code>JSONResponse</code>) that happens to solve a similar-sounding
+        problem ("send this data back with an error status"). Both classes exist in the same
+        FastAPI/Starlette response ecosystem, easy to blend their argument names.
+      </p>
+
+      <h3>How to avoid it next time</h3>
+      <ul>
+        <li><code>raise HTTPException(...)</code> → only <code>status_code</code>, <code>detail</code>, <code>headers</code>. FastAPI builds the JSON body from <code>detail</code> for you.</li>
+        <li><code>return JSONResponse(...)</code> → only place <code>content</code> is valid, for full manual control over a returned response.</li>
+        <li>If you're building a dict just to hand it to an exception, that's the tell — <code>detail</code> already accepts a str, dict, or list directly, no wrapping needed.</li>
+        <li>Hit the endpoint once (Swagger UI or curl) before moving on — this error only appears on the request path, not at import time.</li>
+      </ul>
+
+      <div class="learn">
+        <strong>💡 Learn this:</strong> Two constructors that both "produce an HTTP error response"
+        can still have completely different signatures because they serve different call sites —
+        <code>raise</code> vs. <code>return</code>. Before passing a kwarg, check it against the
+        specific class's actual signature, not against "what worked on a similar-looking class
+        nearby."
+      </div>
+    </div>
+  </section>
+
+  <!-- MISTAKE 12 -->
+  <section class="mistake" id="m12">
+    <div class="mistake-header">
+      <span class="badge medium">Medium</span>
+      <h2>12. Docker DB container not running — <code>ConnectionRefusedError</code></h2>
+    </div>
+    <div class="mistake-body">
+      <div class="tldr"><strong>TL;DR</strong><code>uv run .\app.py</code> failed with <code>ConnectionRefusedError: [WinError 1225]</code> during <code>lifespan</code> startup. Not a code bug — the Postgres Docker container (<code>ticket-db</code>) had exited, so nothing was listening on <code>localhost:5432</code>.</div>
+
+      <h3>What happened</h3>
+      <p>
+        <code>engine.begin()</code> in <code>lifespan()</code> tries to open a real TCP connection to
+        Postgres the moment the app starts, before it can create tables. <code>docker ps -a</code>
+        showed <code>ticket-db</code> (postgres:16, port 5432) in state <code>Exited (255)</code> — it
+        had stopped at some point after being set up the day before. App code was fine; the dependency
+        it needs (a running database process) simply wasn't there.
+      </p>
+
+      <h3>Piece by piece</h3>
+      <table class="breakdown">
+        <tr><th>Piece</th><th>Meaning</th></tr>
+        <tr><td><code>ConnectionRefusedError</code></td><td>OS-level: something tried to connect to a host:port and nothing accepted — no process is listening there</td></tr>
+        <tr><td><code>engine.begin()</code></td><td>SQLAlchemy opens an actual connection here — this is the exact line that surfaces "DB unreachable"</td></tr>
+        <tr><td><code>docker ps -a</code></td><td>lists <em>all</em> containers, including stopped ones — <code>docker ps</code> alone would have hidden the stopped <code>ticket-db</code> entirely</td></tr>
+        <tr><td><code>Exited (255)</code></td><td>container ran, then stopped — could be a manual stop, a crash, or (here) not surviving a machine restart</td></tr>
+      </table>
+
+      <h3>Traced step by step</h3>
+      <div class="example">
+<span class="line">1. Docker/PC restarted at some point → container has no restart policy → stays stopped</span>
+<span class="line">2. uv run .\app.py  → engine.begin() tries TCP connect to localhost:5432</span>
+<span class="line err">3. nothing listening on 5432 → ConnectionRefusedError → lifespan fails → "Application startup failed. Exiting."</span>
+<span class="line ok">4. docker start ticket-db → container Up → port 5432 listening → app starts clean</span>
+      </div>
+
+      <span class="tag bad">Symptom (looked like a code problem, wasn't)</span>
+      <pre class="bad">ConnectionRefusedError: [WinError 1225] The remote computer refused the network connection</pre>
+
+      <span class="tag good">Fix — start the container, then verify, then re-run the app</span>
+      <pre class="good">docker start ticket-db
+docker ps --filter "name=ticket-db"   # confirm STATUS shows "Up ..."
+uv run .\app.py</pre>
+
+      <span class="tag good">Prevent it from happening again — give it a restart policy</span>
+      <pre class="good">docker update --restart unless-stopped ticket-db
+# now the container auto-starts with the Docker daemon / after a reboot,
+# instead of silently staying Exited until you manually notice and start it</pre>
+
+      <h3>Why it happened</h3>
+      <p>
+        Container was started manually the day before (<code>docker run ...</code> or
+        <code>docker start</code>) without a restart policy. Docker containers don't survive a Docker
+        Desktop restart or a machine reboot unless told to — no policy means "stay stopped until a
+        human starts it again." Easy to forget it's a separate process from your FastAPI app, since
+        normally you only think about starting the app itself.
+      </p>
+
+      <h3>How to avoid it next time</h3>
+      <ul>
+        <li>Treat <code>ConnectionRefusedError</code> at app startup as an infra question first, not a code question: "is the thing I'm connecting to actually running?" — check before reading a stack trace line by line.</li>
+        <li><code>docker ps</code> only shows <em>running</em> containers — always use <code>docker ps -a</code> when a container you expect "should be there" seems missing.</li>
+        <li>Any container your dev workflow depends on every session → set <code>--restart unless-stopped</code> once, so it survives reboots without manual babysitting.</li>
+        <li>If a container keeps exiting right after start (crash-looping, not just "never started"), check <code>docker logs &lt;name&gt; --tail 50</code> before assuming a restart policy alone will fix it.</li>
+      </ul>
+
+      <div class="learn">
+        <strong>💡 Learn this:</strong> A stack trace that ends in a networking error
+        (<code>ConnectionRefusedError</code>, <code>timeout</code>, DNS failure) almost always means
+        "the other side isn't there or isn't reachable" — not "my Python code has a bug." Your app and
+        its database are two independent processes; starting one never starts the other. Whenever the
+        app depends on an external service (DB, cache, queue), that dependency's up/down status is the
+        first thing to check, before touching any application code.
       </div>
     </div>
   </section>

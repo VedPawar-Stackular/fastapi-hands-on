@@ -1,83 +1,107 @@
-from typing import Optional, List
-from enum import Enum
-from contextlib import asynccontextmanager
-
-from pydantic import BaseModel
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
+from typing import Annotated, List, Optional
 from fastapi.responses import Response
+from contextlib import asynccontextmanager
+from enum import Enum
+from sqlmodel import SQLModel, Field, select
+from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import create_async_engine
+from config import settings
+from datetime import datetime, timezone
+
+# Creates the async connection pool. echo=True prints every SQL statement
+# to the terminal the moment it executes — useful for watching exactly
+# what INSERT/SELECT/UPDATE fires on each endpoint hit.
+engine = create_async_engine(settings.database_url, echo=True)
 
 
-# --- Enum for priority ---
-# Using str + Enum means the values serialize to plain strings in JSON.
-# Pydantic will automatically reject anything not in this list with a 422.
+async def get_db():
+    # yield (not return) because the session must stay open for the entire
+    # duration of the request. yield hands the session to the route function,
+    # pauses here, and only resumes (to close the session) after the route
+    # has finished executing. A return would close the session immediately.
+    async with AsyncSession(engine) as session:
+        yield session
+
+
+# --- Enums ---
+
 class Priority(str, Enum):
     LOW = "LOW"
     MEDIUM = "MEDIUM"
     HIGH = "HIGH"
 
 
-# --- In-memory store ---
-# A plain dict acting as our "database" for now.
-# Key = ticket_id (int), Value = Ticket object.
-# This pattern mirrors what a real DB session will look like in Days 3-4.
-tickets_db: dict = {}
+# --- Ticket: 4-class pattern ---
 
-
-# --- Lifespan: defined BEFORE app is created ---
-# Everything above the yield runs at startup.
-# Everything below the yield runs at shutdown.
-# The yield itself is just the pause point — the app runs while it waits there.
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    print("Starting up...")
-    tickets_db[1] = Ticket(id=1, title="Replace hydraulic filter", priority=Priority.HIGH, reported_by="Alice")
-    tickets_db[2] = Ticket(id=2, title="Calibrate pressure gauge", priority=Priority.MEDIUM, reported_by="Bob")
-    tickets_db[3] = Ticket(id=3, title="Clean conveyor belt", priority=Priority.LOW, reported_by="Carol")
-
-    yield
-
-    print("Shutting down...")
-    tickets_db.clear()
-
-
-# --- App created ONCE, with lifespan, before any routes are registered ---
-# Critical: if you create app = FastAPI() first and then app = FastAPI(lifespan=...)
-# later, all routes registered in between are lost — they belonged to the first instance.
-app = FastAPI(lifespan=lifespan)
-
-
-# --- Pydantic models ---
-
-# TicketCreate: what the CLIENT sends us.
-# No id (the backend assigns that) and no is_resolved (always False on creation).
-# Sending extra fields the client shouldn't control would be a security / logic mistake.
-class TicketCreate(BaseModel):
+class TicketBase(SQLModel):
     title: str
-    priority: Priority      # Pydantic validates against the enum automatically
+    priority: Priority      # ← wired to enum: "URGENT" now gives a 422 automatically
     reported_by: str
 
+class TicketCreate(TicketBase):
+    # Inherits only the client-controlled fields. id and is_resolved are
+    # assigned by the backend, so they must not appear here.
+    pass
 
-# Ticket: what WE send back.
-# Includes id and is_resolved, which only the backend controls.
-class Ticket(BaseModel):
+class TicketRead(TicketBase):
+    # What we send back. Separate from Ticket (the table model) so that
+    # adding internal-only columns to Ticket doesn't accidentally leak them
+    # through the API response.
     id: int
-    title: str
-    priority: Priority
-    reported_by: str
+    is_resolved: bool
+
+class Ticket(TicketBase, table=True):
+    # table=True registers this as a real PostgreSQL table.
+    # Without it, SQLModel treats the class as a plain Pydantic schema.
+    id: Optional[int] = Field(default=None, primary_key=True)
     is_resolved: bool = False
 
 
-# --- Dependency ---
-# Returns the in-memory dict right now.
-# In Days 3-4, this becomes an async database session.
-# The payoff: every route using Depends(get_db) automatically gets the upgrade
-# when we swap this one function — no touching individual routes.
-def get_db() -> dict:
-    return tickets_db
+# --- Comment: 4-class pattern ---
+
+class CommentBase(SQLModel):
+    content: str
+
+class CommentCreate(CommentBase):
+    pass
+
+class CommentRead(CommentBase):
+    id: int
+    ticket_id: int
+    created_at: datetime       # datetime, not str
+
+class Comment(CommentBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    ticket_id: int = Field(foreign_key="ticket.id")
+    # default_factory stamps the timestamp automatically on every insert.
+    # No need to set it manually in the route — the model handles it.
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
-# ================
-# ===========================================================
+# --- Lifespan ---
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # engine.begin() is a raw connection (not a session) used for DDL.
+    # create_all checks which tables already exist and only creates missing ones.
+    # It will not drop or recreate existing tables, so data is safe on restart.
+    async with engine.begin() as conn:
+        await conn.run_sync(SQLModel.metadata.create_all)
+    yield
+    # shutdown — nothing to clean up for now
+
+
+# --- App created once, with lifespan, before any routes ---
+
+app = FastAPI(lifespan=lifespan)
+
+# Annotated shorthand so every route can write `db: SessionDep` instead of
+# the full `db: AsyncSession = Depends(get_db)` each time.
+SessionDep = Annotated[AsyncSession, Depends(get_db)]
+
+
+# ===========================================================================
 # ROUTES
 # ===========================================================================
 
@@ -86,88 +110,108 @@ async def health_check():
     return {"status": "ok"}
 
 
-@app.post("/tickets", response_model=Ticket, status_code=201)
-# 201 Created — we made a new resource. 200 would also not be wrong, but 201
-# is the precise code for "a resource was created as a result of this request."
-async def create_ticket(ticket: TicketCreate, db: dict = Depends(get_db)):
-    # max(db.keys(), default=0) + 1 is safer than len(db) + 1:
-    # if we delete ticket id=2 from {1,2,3}, len is 2 but max is 3.
-    # len() + 1 would generate id=3 again — a collision.
-    ticket_id = max(db.keys(), default=0) + 1
-    full_ticket = Ticket(id=ticket_id, **ticket.model_dump())
-    db[ticket_id] = full_ticket
-    return full_ticket
+@app.post("/tickets/", response_model=TicketRead, status_code=201)
+async def create_ticket(ticket_in: TicketCreate, db: SessionDep):
+    ticket = Ticket(**ticket_in.model_dump())
+    db.add(ticket)          # Python-side only — no SQL yet
+    await db.commit()       # INSERT fires here; Postgres assigns id
+    await db.refresh(ticket)  # SELECT fires here; Python object now has real id
+    return ticket
 
 
-@app.get("/tickets", response_model=List[Ticket])
+@app.get("/tickets/", response_model=List[TicketRead])
 async def read_tickets(
+    db: SessionDep,
     priority: Optional[Priority] = None,
     is_resolved: Optional[bool] = None,
-    db: dict = Depends(get_db)
 ):
-    # Start with all tickets, then apply each filter only if the param was provided.
-    # This handles all four cases automatically:
-    #   no params        → all tickets
-    #   priority only    → filter by priority
-    #   is_resolved only → filter by is_resolved
-    #   both params      → filter by both (the case your original code missed)
-    tickets = list(db.values())
+    # Build the query object first, then execute it once.
+    # select(Ticket) returns a query object — no SQL sent yet.
+    # Each .where() appends an AND condition to that query.
+    # This handles all four combinations: no params, either param, both params.
+    query = select(Ticket)
     if priority is not None:
-        tickets = [t for t in tickets if t.priority == priority]
+        query = query.where(Ticket.priority == priority)
     if is_resolved is not None:
-        tickets = [t for t in tickets if t.is_resolved == is_resolved]
-    return tickets
+        query = query.where(Ticket.is_resolved == is_resolved)
+    result = await db.exec(query)
+    return result.all()
 
 
-@app.get("/tickets/{ticket_id}", response_model=Ticket)
-async def read_ticket(ticket_id: int, db: dict = Depends(get_db)):
-    ticket = db.get(ticket_id)
+@app.get("/tickets/{ticket_id}", response_model=TicketRead)
+async def read_ticket(ticket_id: int, db: SessionDep):
+    # session.get() is for primary-key lookups only — the fastest path
+    # when you know the exact id. No filtering possible, just a direct fetch.
+    ticket = await db.get(Ticket, ticket_id)
     if not ticket:
-        # raise, not return — HTTPException is caught by FastAPI's exception handler
-        # which formats it into {"detail": "Ticket not found"} with the right status code.
         raise HTTPException(status_code=404, detail="Ticket not found")
     return ticket
 
 
-@app.put("/tickets/{ticket_id}", response_model=Ticket)
-# PUT replaces the full resource. All editable fields must be provided.
-# If the client only wants to update one field, PATCH is the right verb.
-async def update_ticket(
-    ticket_id: int,
-    ticket_update: TicketCreate,
-    db: dict = Depends(get_db)
-):
-    if not db.get(ticket_id):
+@app.put("/tickets/{ticket_id}", response_model=TicketRead)
+async def update_ticket(ticket_id: int, ticket_update: TicketCreate, db: SessionDep):
+    ticket = await db.get(Ticket, ticket_id)
+    if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
-    # Build a fresh Ticket, preserving the original id.
-    # is_resolved stays as-is because TicketCreate doesn't include it —
-    # updating content shouldn't accidentally re-open a resolved ticket.
-    updated = Ticket(id=ticket_id, is_resolved=db[ticket_id].is_resolved, **ticket_update.model_dump())
-    db[ticket_id] = updated
-    return updated
+    # Mutate the fields that belong to the client.
+    # is_resolved is intentionally untouched — a content update should not
+    # silently re-open a resolved ticket.
+    ticket.title = ticket_update.title
+    ticket.priority = ticket_update.priority
+    ticket.reported_by = ticket_update.reported_by
+    await db.commit()
+    await db.refresh(ticket)
+    return ticket
 
 
-@app.patch("/tickets/{ticket_id}/resolve", response_model=Ticket)
-# PATCH changes one specific thing. No request body needed here —
-# the intent is entirely expressed in the URL path ("/resolve").
-async def resolve_ticket(ticket_id: int, db: dict = Depends(get_db)):
-    ticket = db.get(ticket_id)
+@app.patch("/tickets/{ticket_id}/resolve", response_model=TicketRead)
+async def resolve_ticket(ticket_id: int, db: SessionDep):
+    ticket = await db.get(Ticket, ticket_id)
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
     ticket.is_resolved = True
-    db[ticket_id] = ticket
+    await db.commit()
+    await db.refresh(ticket)
     return ticket
 
 
 @app.delete("/tickets/{ticket_id}", status_code=204)
-# 204 No Content — the HTTP spec says a 204 response MUST NOT include a body.
-# So we return a bare Response(status_code=204), not the deleted ticket object.
-# Some HTTP clients will error if you send a body with a 204.
-async def delete_ticket(ticket_id: int, db: dict = Depends(get_db)):
-    if not db.get(ticket_id):
+async def delete_ticket(ticket_id: int, db: SessionDep):
+    ticket = await db.get(Ticket, ticket_id)
+    if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
-    del db[ticket_id]
-    return Response(status_code=204)
+    await db.delete(ticket)
+    await db.commit()
+    return Response(status_code=204)    # 204 must have no body
+
+
+# --- Comment endpoints ---
+
+@app.post("/tickets/{ticket_id}/comments/", response_model=CommentRead, status_code=201)
+async def create_comment(ticket_id: int, comment_in: CommentCreate, db: SessionDep):
+    # Always verify the parent ticket exists before inserting a child row.
+    # Without this check, a comment on a non-existent ticket would either
+    # fail with a FK constraint error (ugly 500) or silently orphan the row.
+    ticket = await db.get(Ticket, ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    # created_at is set automatically by the field's default_factory.
+    comment = Comment(content=comment_in.content, ticket_id=ticket_id)
+    db.add(comment)
+    await db.commit()
+    await db.refresh(comment)
+    return comment
+
+
+@app.get("/tickets/{ticket_id}/comments/", response_model=List[CommentRead])
+async def read_comments(ticket_id: int, db: SessionDep):
+    ticket = await db.get(Ticket, ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    # select + where is the right tool here because we're filtering by a
+    # non-primary-key column (ticket_id). session.get() only works with PK.
+    result = await db.exec(select(Comment).where(Comment.ticket_id == ticket_id))
+    return result.all()
 
 
 if __name__ == "__main__":
