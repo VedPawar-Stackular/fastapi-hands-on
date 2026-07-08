@@ -1,6 +1,0 @@
-- I started with making a uv init file structure and installed dependencies and opened the Swagger UI docs
-- I generated boilerplate code for fastAPI
-- Read the requirements, as in the entire project information
-- I made all the endpoints, from the requirements that you had given
-- I tested each enpoint in the /docs at the time of creating them itself, its like debuggin the code and seeeing the output at the same time.
-- What i noticed is that i struggle with syntax remembering the most, and also understanding what should go where, and how each thing links as a whole. 

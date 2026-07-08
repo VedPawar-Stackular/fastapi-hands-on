@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from config import settings
 from datetime import datetime, timezone
 from sqlalchemy import Column, DateTime
+from pydantic import ConfigDict
 
 engine = create_async_engine(settings.database_url, echo=True)
 
@@ -24,9 +25,12 @@ class Type(str, Enum):
     MEASURING = "MEASURING"
 
 class ToolShared(SQLModel):
-    name: str
+    # This strips whitespace globally for all string fields in this model
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    name: str = Field(min_length=1)
     type: Type
-    department: str
+    department: str = Field(min_length=1)
 
 class Tool(ToolShared, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
