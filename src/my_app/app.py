@@ -49,11 +49,14 @@ class ToolRead(ToolShared):
     is_active: bool
     created_at: datetime
 
+
+# Disabling the ORM's auto-create
+# create_all and Liquibase are two competing schema owners. create_all checks "does this table exist? no → create it" from your Python models — it has no concept of versioned, tracked, incremental changes. Liquibase checks its own DATABASECHANGELOG table for "have I run changeSet X before?" — independent of what the DB actually looks like. Run both, and create_all will silently recreate your table on next app startup (from the model, ignoring your changelog), masking whether Liquibase actually worked. In real projects you pick one schema owner — almost always Liquibase/Flyway once a project ships, since only migrations give you rollback, audit history, and safe production rollout. create_all is a prototyping-only shortcut.
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    #creating the database table.
-    async with engine.begin() as conn:
-        await conn.run_sync(SQLModel.metadata.create_all)
+    # Schema now owned by Liquibase — see db/changelog/changelog.xml
+    # async with engine.begin() as conn:
+    #     await conn.run_sync(SQLModel.metadata.create_all)
     yield
 
 app = FastAPI(lifespan=lifespan)

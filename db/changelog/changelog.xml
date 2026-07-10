@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="1" author="ved">
+        <createTable tableName="tool">
+            <column name="id" type="serial">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="name" type="varchar">
+                <constraints nullable="false"/>
+            </column>
+            <column name="type" type="varchar">
+                <constraints nullable="false"/>
+            </column>
+            <column name="department" type="varchar">
+                <constraints nullable="false"/>
+            </column>
+            <column name="is_active" type="boolean" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="timestamp with time zone">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="2" author="ved">
+        <addColumn tableName="tool">
+            <column name="last_maintained_at" type="timestamp with time zone"/>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="3" author="ved">
+        <addColumn tableName="tool">
+            <column name="maintenance_interval_days" type="integer"/>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="4" author="ved">
+        <sql>
+            UPDATE tool SET maintenance_interval_days = CASE type
+                WHEN 'HAND' THEN 90
+                WHEN 'POWER' THEN 30
+                WHEN 'MEASURING' THEN 14
+            END;
+        </sql>
+    </changeSet>
+
+    <changeSet id="5" author="ved">
+        <addNotNullConstraint tableName="tool" columnName="maintenance_interval_days" columnDataType="integer"/>
+    </changeSet>
+
+
+</databaseChangeLog>
