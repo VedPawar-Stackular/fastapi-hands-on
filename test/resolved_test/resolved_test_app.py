@@ -5,7 +5,7 @@ sys.path.insert(0, project_root)
 
 import pytest
 import pytest_asyncio          # ← must import to use @pytest_asyncio.fixture
-from src.my_app.app import Tool
+from src.my_app.app import Tool, MAINTENANCE_INTERVAL_DAYS
 
 
 # ---------------------------------------------------------------------------
@@ -19,9 +19,9 @@ from src.my_app.app import Tool
 @pytest_asyncio.fixture
 async def existing_item(db_session):
     tools = [
-        Tool(name="Sample Tool 2", type="POWER", department="Mechanical"),
-        Tool(name="Sample Tool 3", type="HAND", department="Carpentry"),
-        Tool(name="Sample Tool 4", type="MEASURING", department="Automotive"),
+        Tool(name="Sample Tool 2", type="POWER", department="Mechanical", maintenance_interval_days=MAINTENANCE_INTERVAL_DAYS["POWER"]),
+        Tool(name="Sample Tool 3", type="HAND", department="Carpentry", maintenance_interval_days=MAINTENANCE_INTERVAL_DAYS["HAND"]),
+        Tool(name="Sample Tool 4", type="MEASURING", department="Automotive", maintenance_interval_days=MAINTENANCE_INTERVAL_DAYS["MEASURING"]),
     ]
     db_session.add_all(tools)
     await db_session.commit()

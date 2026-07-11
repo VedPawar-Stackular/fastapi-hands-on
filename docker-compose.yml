@@ -1,0 +1,23 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://ticketuser:ticketpass@host.docker.internal:5432/manuf_tool_registry
+    depends_on:
+      liquibase:
+        condition: service_completed_successfully
+
+  liquibase:
+    image: liquibase/liquibase:4.29
+    volumes:
+      - ./db/changelog:/liquibase/db/changelog
+      - C:/liquibase/lib/postgresql-42.7.12.jar:/liquibase/classpath/postgresql-42.7.12.jar      # <- postgres jdbc jar goes here
+    command:
+      - --changelog-file=db/changelog/changelog.xml
+      - --url=jdbc:postgresql://host.docker.internal:5432/manuf_tool_registry
+      - --username=ticketuser
+      - --password=ticketpass
+      - --classpath=/liquibase/classpath/postgresql-42.7.12.jar
+      - update

@@ -24,6 +24,14 @@ class Type(str, Enum):
     POWER = "POWER"
     MEASURING = "MEASURING"
 
+# Mirrors changelog.xml changeset 4's backfill rule. Single source of truth
+# so every new row gets the right default instead of relying on a one-off SQL UPDATE.
+MAINTENANCE_INTERVAL_DAYS: dict[Type, int] = {
+    Type.HAND: 90,
+    Type.POWER: 30,
+    Type.MEASURING: 14,
+}
+
 class ToolShared(SQLModel):
     name: str
     type: Type
@@ -38,6 +46,13 @@ class Tool(ToolShared, table=True):
         default_factory=lambda: datetime.now(timezone.utc),
         sa_column=Column(DateTime(timezone=True), nullable=False)
     )
+    last_maintained_at: Optional[datetime] = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True)
+    )
+    # NOT NULL at the DB level (changelog changeset 5) — every Tool() construction
+    # must set this, which is why create_tool computes it instead of leaving it to default.
+    maintenance_interval_days: int
 
 
 class ToolCreate(ToolShared):
@@ -47,6 +62,8 @@ class ToolRead(ToolShared):
     id: int
     is_active: bool
     created_at: datetime
+    last_maintained_at: Optional[datetime]
+    maintenance_interval_days: int
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -69,9 +86,10 @@ async def create_tool(tool_in: ToolCreate, db: SessionDep):
     tool=Tool(
         name=tool_in.name,
         type=tool_in.type,
-        department=tool_in.department
+        department=tool_in.department,
+        maintenance_interval_days=MAINTENANCE_INTERVAL_DAYS[tool_in.type],
     )
-    db.add(tool) 
+    db.add(tool)
     await db.commit()
     await db.refresh(tool)
     return tool
@@ -107,6 +125,9 @@ async def update_tool(tool_id: int, tool_update: ToolCreate, db: SessionDep):
     tool.name = tool_update.name
     tool.type = tool_update.type
     tool.department = tool_update.department
+    # Recompute so interval stays correct if type changed (e.g. HAND -> POWER
+    # shouldn't leave the old 90-day interval sitting on a now-POWER tool)
+    tool.maintenance_interval_days = MAINTENANCE_INTERVAL_DAYS[tool_update.type]
 
     await db.commit()
     await db.refresh(tool)

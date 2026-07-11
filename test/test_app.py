@@ -4,7 +4,7 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, project_root)
 
 import pytest
-from src.my_app.app import Tool
+from src.my_app.app import Tool, MAINTENANCE_INTERVAL_DAYS
 
 
 # initial one time initialization call to set up the database connection pool and set up the session factory to create the sessions when the endpoints will call them. these are session based, hence they will stay the entire way until the connections are not closed.
@@ -12,10 +12,12 @@ from src.my_app.app import Tool
 @pytest.fixture
 async def existing_item(db_session):
     # 1. Define all your tool instances in a list
+    # maintenance_interval_days is required (NOT NULL in DB) — passed explicitly
+    # here since we're constructing Tool() directly, bypassing create_tool's logic.
     tools = [
-        Tool(name="Sample Tool 2", type="POWER", department="Mechanical"),
-        Tool(name="Sample Tool 3", type="HAND", department="Carpentry"),
-        Tool(name="Sample Tool 4", type="MEASURING", department="Automotive")
+        Tool(name="Sample Tool 2", type="POWER", department="Mechanical", maintenance_interval_days=MAINTENANCE_INTERVAL_DAYS["POWER"]),
+        Tool(name="Sample Tool 3", type="HAND", department="Carpentry", maintenance_interval_days=MAINTENANCE_INTERVAL_DAYS["HAND"]),
+        Tool(name="Sample Tool 4", type="MEASURING", department="Automotive", maintenance_interval_days=MAINTENANCE_INTERVAL_DAYS["MEASURING"]),
     ]
     
     # 2. Add the list of instances in bulk
