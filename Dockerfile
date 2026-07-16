@@ -25,4 +25,5 @@ EXPOSE 8000
 # --app-dir points uvicorn at src/my_app as import root — required because
 # resolved_app.py does `from config import settings` (flat import, no package prefix).
 # Same trick your pyproject.toml uses for pytest via pythonpath=["src/my_app"]
-CMD ["uv", "run", "uvicorn", "resolved_app:app", "--app-dir", "src/my_app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uv", "run", "uvicorn", "app:app", "--app-dir", "src/my_app", "--host", "0.0.0.0", "--port", "8000"]
+#CMD ["uv", "run", "uvicorn", "resolved_app:app", "--app-dir", "src/my_app", "--host", "0.0.0.0", "--port", "8000"]

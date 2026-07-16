@@ -1,5 +1,6 @@
 # Python-generated files
 __pycache__/
+.pytest_cache
 *.py[oc]
 build/
 dist/
@@ -12,3 +13,5 @@ wheels/
 # Secrets
 .env
 liquibase.properties
+
+Learnings

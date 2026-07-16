@@ -3,6 +3,8 @@ services:
     build: .
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
       DATABASE_URL: postgresql+asyncpg://ticketuser:ticketpass@host.docker.internal:5432/manuf_tool_registry
     depends_on:
